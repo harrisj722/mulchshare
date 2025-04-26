@@ -1,0 +1,7 @@
+streamlit
+pandas
+geopy
+folium
+gspread
+oauth2client
+streamlit-folium
