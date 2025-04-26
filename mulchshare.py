@@ -6,14 +6,18 @@ from streamlit_folium import st_folium
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import datetime
+import json
 
 # --------------------------------------
 # Connect to Google Sheets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-credentials = ServiceAccountCredentials.from_json_keyfile_name('mulchshare_credentials.json', scope)
-client = gspread.authorize(credentials)
 
-# Open the Google Sheet
+# 👉 Use Streamlit Secrets instead of JSON file
+secrets = st.secrets["gcp_service_account"]
+creds_dict = {k: v for k, v in secrets.items()}
+credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+
+client = gspread.authorize(credentials)
 sheet = client.open("MulchShare_Registrations").sheet1
 
 # --------------------------------------
