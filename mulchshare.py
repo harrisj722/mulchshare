@@ -1,88 +1,92 @@
 import streamlit as st
-import pandas as pd
 from geopy.geocoders import Nominatim
 import folium
 from streamlit_folium import st_folium
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import datetime
-import json
 
-# --------------------------------------
-# Connect to Google Sheets
+# Page setup
+st.set_page_config(page_title="Mulch Share", layout="wide")
+
+# Constants
+ACCESS_CODE = "mulch2025"
+
+# Google Sheets setup
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-
-# 👉 Use Streamlit Secrets instead of JSON file
-secrets = st.secrets["gcp_service_account"]
-creds_dict = {k: v for k, v in secrets.items()}
+creds_dict = st.secrets["gcp_service_account"]
 credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-
 client = gspread.authorize(credentials)
 sheet = client.open("MulchShare_Registrations").sheet1
 
-# --------------------------------------
-# Streamlit page settings
-st.set_page_config(page_title="MulchShare", layout="centered")
+# Landing Page Description
+st.markdown("""
+## 🌱 Welcome to Mulch Share
 
-st.title("🌱 MulchShare – Free Mulch Delivered to You!")
-st.write("Register your address to receive free mulch from local suppliers.")
+**Mulch Share** connects:
+- 🏡 Residents who want free mulch
+- 🚛 Contractors with mulch to drop off (saving disposal costs)
 
-# --------------------------------------
-# Geocode address function
-def geocode_address(address):
-    geolocator = Nominatim(user_agent="mulchshare")
-    location = geolocator.geocode(address)
-    if location:
-        return location.latitude, location.longitude
-    else:
-        return None, None
+---
 
-# --------------------------------------
-# Registration Form
-with st.form("register_form"):
-    name = st.text_input("Name")
-    email = st.text_input("Email")
-    phone = st.text_input("Phone Number")
-    address = st.text_input("Address")
-    instructions = st.text_area("Access Instructions")
-    pickup = st.radio("Willing to Pick Up Mulch if Needed?", ("Yes", "No"))
-    notes = st.text_area("Notes (Optional)")
-    submit = st.form_submit_button("Register")
+### How It Works
+1. Residents register their address using the form below.
+2. Contractors view a teaser map of interested recipients.
+3. With a passcode (provided manually), they can unlock full drop-off info.
 
-    if submit:
-        lat, lon = geocode_address(address)
-        if lat and lon:
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            row = [timestamp, name, email, phone, address, instructions, pickup, notes]
-            sheet.append_row(row)
-            st.success("✅ Registration successful! Thanks for joining MulchShare.")
-        else:
-            st.error("⚠️ Could not locate address. Please check your address and try again.")
+---
+""")
 
-# --------------------------------------
-# Display Map
-st.subheader("📍 Drop-off Locations (Registered Addresses)")
+# Navigation Toggle
+view = st.selectbox("Choose your view", ["Register to Receive Mulch", "View Drop-Off Locations"])
 
-records = sheet.get_all_records()
+# View 1: Registration Form
+if view == "Register to Receive Mulch":
+    st.subheader("📋 Register to Receive Mulch")
 
-if records:
-    df = pd.DataFrame(records)
+    with st.form("registration_form"):
+        name = st.text_input("Your Name")
+        email = st.text_input("Email Address")
+        phone = st.text_input("Phone Number")
+        address = st.text_input("Delivery Address")
+        instructions = st.text_area("Drop-off Instructions (access, gate codes, etc.)")
+        submitted = st.form_submit_button("Register")
 
-    m = folium.Map(location=[-40.9006, 174.8860], zoom_start=6)
+        if submitted:
+            if name and email and phone and address:
+                sheet.append_row([name, email, phone, address, instructions])
+                st.success("✅ Registration submitted!")
+            else:
+                st.warning("Please fill in all required fields.")
 
-    for _, row in df.iterrows():
-        try:
-            loc = Nominatim(user_agent="mulchshare_map").geocode(row['Address'])
-            if loc:
-                popup = f"<b>{row['Name']}</b><br>📍 {row['Address']}<br>📞 {row['Phone Number']}"
-                folium.Marker(
-                    [loc.latitude, loc.longitude],
-                    popup=popup,
-                    icon=folium.Icon(color="green", icon="truck", prefix="fa")
-                ).add_to(m)
-        except:
-            pass
-
-    st_folium(m, width=700, height=500)
+# View 2: Supplier Map View
 else:
-    st.info("No registered addresses yet.")
+    st.subheader("🚛 Drop-Off: View Mulch Recipient Locations")
+
+    password_input = st.text_input("Enter access code to view full details", type="password")
+    unlocked = password_input == ACCESS_CODE
+
+    records = sheet.get_all_records()
+    if not records:
+        st.info("No mulch drop-off registrations yet.")
+    else:
+        geolocator = Nominatim(user_agent="mulchshare-app")
+        map_center = [-40.9, 174.8]  # Center on NZ
+
+        m = folium.Map(location=map_center, zoom_start=5)
+
+        for row in records:
+            location = geolocator.geocode(row["Address"])
+            if location:
+                if unlocked:
+                    popup = f"{row['Name']}<br>{row['Email']}<br>{row['Phone']}<br>{row['Drop-off Instructions']}"
+                else:
+                    popup = "🔒 Registered Recipient (details hidden)"
+                folium.Marker(
+                    location=[location.latitude, location.longitude],
+                    popup=popup,
+                    icon=folium.Icon(color="green", icon="leaf" if unlocked else "info-sign"),
+                ).add_to(m)
+
+        st_folium(m, width=800, height=500)
+        if not unlocked:
+            st.info("Enter the access code above to unlock full details.")
